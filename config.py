@@ -62,7 +62,7 @@ KILL_ZONES = {
 CHECK_INTERVAL_MINUTES = 15
 DB_PATH                = "database/trading_lab.db"
 LOG_PATH               = "logs/trading.log"
-DASHBOARD_PORT         = 5000
+DASHBOARD_PORT         = int(os.getenv("PORT", 8000))
 MODEL                  = "claude-sonnet-4-20250514"
 
 # ─────────────────────────────────────────────
