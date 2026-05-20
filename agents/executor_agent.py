@@ -14,7 +14,7 @@ from database import models
 from agents.data_agent import get_current_price
 
 
-def open_trade(signal: dict, reason: str) -> int:
+def open_trade(signal: dict, reason: str, grade: str = "C") -> int:
     """Open a paper trade. Returns trade_id.
     Balance is NOT touched on open — it only moves on close (by realized pnl).
     """
@@ -31,6 +31,7 @@ def open_trade(signal: dict, reason: str) -> int:
         setup_type = signal["setup_type"],
         bias       = signal["bias"],
         reason     = reason,
+        grade      = grade,
     )
 
     models.log_agent("Executor", signal["symbol"],

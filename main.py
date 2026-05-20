@@ -272,10 +272,11 @@ def _analyze_symbol(symbol: str, market: str, kz_name: str):
     grade = _grade_trade(analysis.setup_score)
     signal["grade"] = grade
 
-    # ── Multi-specialist AI council ──────────────────────────────────
+    # ── Multi-specialist AI council (Grade A only — conserve Gemini quota) ──
     council = None
-    if getattr(config, "ENABLE_AI_COUNCIL", True):
+    if getattr(config, "ENABLE_AI_COUNCIL", True) and grade == "A":
         try:
+            time.sleep(2)   # 2s gap to respect 10 RPM free-tier limit
             council = run_specialist_council(analysis, signal, kz_name, df_htf, df_ltf)
             syn = council.get("synthesis") or {}
             if getattr(config, "COUNCIL_HARD_VETO", True) and syn.get("hard_veto"):
