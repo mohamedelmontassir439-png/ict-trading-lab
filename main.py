@@ -124,10 +124,8 @@ def _analyze_symbol(symbol: str, market: str, kz_name: str):
     log.info(f"    {label} [{market}]")
 
     # ── Session filters ──────────────────────────────────────────────
-    # GBP/USD and XAU/USD only trade London/NewYork
-    session_restricted = {"GBP/USD", "GC=F", "XAUUSD"}
-    if symbol in session_restricted and kz_name not in ("London", "NewYork"):
-        log.info(f"    {label}: skipping {kz_name} session (London/NY only)")
+    if kz_name == "Asian":
+        log.info(f"    {label}: skipping Asian session (indices only trade London/NY)")
         return
 
     # Judas Swing: skip first 15 min of NY (13:30-13:45 UTC is manipulation)
@@ -137,16 +135,18 @@ def _analyze_symbol(symbol: str, market: str, kz_name: str):
         log.info(f"    {label}: NY Judas Swing window (13:30-13:45) — wait")
         return
 
-    # ── Fetch OHLCV data ─────────────────────────────────────────────
-    df_htf   = fetch_ohlcv(symbol, market, config.HTF_INTERVAL)
-    df_ltf   = fetch_ohlcv(symbol, market, config.LTF_INTERVAL)
+    # ── Fetch OHLCV — 4 timeframes (1m → 4h) ───────────────────────
+    df_htf   = fetch_ohlcv(symbol, market, config.HTF_INTERVAL,   limit=200)  # 4h  — bias
+    df_mtf   = fetch_ohlcv(symbol, market, config.MTF_INTERVAL,   limit=200)  # 1h  — structure
+    df_ltf   = fetch_ohlcv(symbol, market, config.LTF_INTERVAL,   limit=200)  # 15m — entry zone
+    df_entry = fetch_ohlcv(symbol, market, config.ENTRY_INTERVAL, limit=100)  # 1m  — trigger
     df_daily = fetch_ohlcv(symbol, market, "1d", limit=60)
 
     if df_htf.empty or df_ltf.empty:
         log.warning(f"    {label}: no data")
         return
 
-    # ── Core ICT analysis ────────────────────────────────────────────
+    # ── Core ICT analysis (HTF bias + LTF entry) ─────────────────────
     analysis = analyze(symbol, market, df_htf, df_ltf)
     if not analysis:
         return
@@ -154,8 +154,21 @@ def _analyze_symbol(symbol: str, market: str, kz_name: str):
     current_price = analysis.current_price
     bias          = analysis.bias
 
+    # ── MTF (1h) structure confirmation ──────────────────────────────
+    if not df_mtf.empty:
+        try:
+            from agents.ict_agent import detect_swings, classify_structure
+            mtf_struct, mtf_bias = classify_structure(detect_swings(df_mtf))
+            log.info(f"    MTF(1h): Struct={mtf_struct} Bias={mtf_bias}")
+            # If MTF contradicts HTF bias, lower confidence
+            if mtf_bias not in (bias, "NEUTRAL"):
+                log.info(f"    MTF conflict: HTF={bias} vs 1h={mtf_bias}")
+        except Exception:
+            pass
+
     log.info(f"    Bias={bias} | Struct={analysis.structure} | "
-             f"Score={analysis.setup_score}/15 | Price={current_price:.5f}")
+             f"Score={analysis.setup_score}/15 | Price={current_price:.5f} "
+             f"[4h→1h→15m→1m]")
 
     # ── Extended ICT concept agents ──────────────────────────────────
     try:
@@ -164,7 +177,7 @@ def _analyze_symbol(symbol: str, market: str, kz_name: str):
         pass
 
     try:
-        analysis.po3 = analyze_po3(symbol, df_ltf)
+        analysis.po3 = analyze_po3(symbol, df_entry if not df_entry.empty else df_ltf)
     except Exception:
         pass
 
@@ -174,12 +187,16 @@ def _analyze_symbol(symbol: str, market: str, kz_name: str):
         pass
 
     try:
-        analysis.silver_bullet = analyze_silver_bullet(symbol, df_ltf, bias, current_price)
+        # Silver Bullet uses 1m for precise FVG detection in its windows
+        _sb_df = df_entry if not df_entry.empty else df_ltf
+        analysis.silver_bullet = analyze_silver_bullet(symbol, _sb_df, bias, current_price)
     except Exception:
         pass
 
     try:
-        analysis.displacement = analyze_displacement(symbol, df_ltf, current_price)
+        # Displacement is clearest on 1m
+        _disp_df = df_entry if not df_entry.empty else df_ltf
+        analysis.displacement = analyze_displacement(symbol, _disp_df, current_price)
     except Exception:
         pass
 
@@ -286,8 +303,12 @@ def _analyze_symbol(symbol: str, market: str, kz_name: str):
         except Exception as e:
             log.warning(f"    Council error (non-critical): {e}")
 
-    # ── AI Decision ──────────────────────────────────────────────────
-    ai = ai_decide(analysis, signal, kz_name, council=council)
+    # ── AI Decision (Grade A/B only — Grade C uses rule-based fallback) ──
+    if grade == "C":
+        from agents.orchestrator import _fallback
+        ai = _fallback(analysis)
+    else:
+        ai = ai_decide(analysis, signal, kz_name, council=council)
     decision   = ai.get("decision", "SKIP")
     reason     = ai.get("reason", "")
     confidence = ai.get("confidence", 0)
@@ -322,7 +343,8 @@ def scheduler():
     log.info("ICT Trading Lab STARTED")
     log.info(f"    Capital: ${config.INITIAL_CAPITAL:,.0f}")
     _fx = [config.display_symbol(s) for s in config.FOREX_PAIRS]
-    log.info(f"    Markets: crypto {config.CRYPTO_PAIRS} | forex {_fx}")
+    log.info(f"    Markets: {_fx}  (indices only — crypto removed)")
+    log.info(f"    Filter : OB+FVG confluence only")
     log.info(f"    Interval: every {config.CHECK_INTERVAL_MINUTES} minutes")
     log.info(f"    AI council: {'ON' if getattr(config, 'ENABLE_AI_COUNCIL', True) else 'OFF'}")
     log.info("─" * 55)

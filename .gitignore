@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.env
+.venv/
+venv/
+*.db
+logs/*.log
+.idea/
+.vscode/
+.claude/
+.trading_lock
+*.BACKUP.py
+*_BACKUP.py
+*_v1_BACKUP.py
+*_NO_COOLDOWN_BACKUP.py

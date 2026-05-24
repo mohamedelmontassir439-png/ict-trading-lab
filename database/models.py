@@ -62,10 +62,14 @@ def init_db():
         )
     """)
 
-    # Migration: add be_moved column if missing (v1 fix)
+    # Migration: add missing columns
     cols = [r["name"] for r in c.execute("PRAGMA table_info(trades)").fetchall()]
     if "be_moved" not in cols:
         c.execute("ALTER TABLE trades ADD COLUMN be_moved INTEGER DEFAULT 0")
+    if "grade" not in cols:
+        c.execute("ALTER TABLE trades ADD COLUMN grade TEXT DEFAULT 'C'")
+    if "ct_pos_id" not in cols:
+        c.execute("ALTER TABLE trades ADD COLUMN ct_pos_id INTEGER DEFAULT NULL")
 
     # ── Daily stats ───────────────────────────────
     c.execute("""
@@ -115,16 +119,17 @@ def update_account(balance, equity, total_pnl, win_count, loss_count):
 
 
 def open_trade(symbol, market, direction, entry, sl, tp,
-               lot, risk_usd, kill_zone, setup_type, bias, reason):
+               lot, risk_usd, kill_zone, setup_type, bias, reason,
+               grade: str = "C", ct_pos_id: int = None):
     conn = get_conn()
     conn.execute("""
         INSERT INTO trades
         (symbol,market,direction,entry_price,sl_price,tp_price,
-         lot_size,risk_usd,kill_zone,setup_type,bias,reason,opened_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+         lot_size,risk_usd,kill_zone,setup_type,bias,reason,grade,ct_pos_id,opened_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (symbol, market, direction, entry, sl, tp,
-          lot, risk_usd, kill_zone, setup_type, bias, reason,
-          _utc_now_iso()))
+          lot, risk_usd, kill_zone, setup_type, bias, reason, grade,
+          ct_pos_id, _utc_now_iso()))
     trade_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.commit()
     conn.close()
@@ -175,6 +180,17 @@ def log_agent(agent, symbol, message):
         (agent, symbol, message, _utc_now_iso()))
     conn.commit()
     conn.close()
+
+
+def get_trade_by_ct_pos(ct_pos_id: int):
+    """إرجاع صفقة بناءً على cTrader position ID."""
+    conn = get_conn()
+    row  = conn.execute(
+        "SELECT * FROM trades WHERE ct_pos_id=? AND status='OPEN' LIMIT 1",
+        (ct_pos_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 
 def upsert_daily_stats(date_str, trades, wins, losses, pnl, max_dd):

@@ -57,10 +57,32 @@ def build_trade_signal(
         _log_agent("RiskAgent", analysis.symbol, f"SKIP: BEAR bias but zone_dir={zdir}")
         return None
 
-    open_count = len(get_open_trades())
+    open_trades = get_open_trades()
+    open_count  = len(open_trades)
     if open_count >= config.MAX_CONCURRENT:
         _log_agent("RiskAgent", analysis.symbol,
                    f"SKIP: MAX_CONCURRENT reached ({open_count}/{config.MAX_CONCURRENT} open)")
+        return None
+
+    # Prevent duplicate: same symbol already has an open trade
+    same_symbol_open = [t for t in open_trades if t["symbol"] == analysis.symbol]
+    if same_symbol_open:
+        _log_agent("RiskAgent", analysis.symbol,
+                   f"SKIP: already have open trade #{same_symbol_open[0]['id']} on {analysis.symbol}")
+        return None
+
+    # Cooldown: don't re-enter same symbol within 30 min of closing a trade
+    from database.models import get_conn as _gc
+    from datetime import datetime, timezone, timedelta
+    _cutoff = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    with _gc() as _conn:
+        _recent = _conn.execute(
+            "SELECT id FROM trades WHERE symbol=? AND status!='OPEN' AND closed_at>=? LIMIT 1",
+            (analysis.symbol, _cutoff)
+        ).fetchone()
+    if _recent:
+        _log_agent("RiskAgent", analysis.symbol,
+                   f"SKIP: cooldown — trade #{_recent[0]} closed within last 30 min")
         return None
 
     account = get_account()

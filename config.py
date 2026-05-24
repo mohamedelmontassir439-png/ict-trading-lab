@@ -2,13 +2,68 @@ import os
 from datetime import time
 
 # ─────────────────────────────────────────────
-#  API KEYS  —  use environment variables only
-#  Orchestrator uses Gemini: set GEMINI_API_KEY
-#  (https://aistudio.google.com/apikey)
-#  Optional Anthropic (backup agent only): ANTHROPIC_API_KEY
+#  API KEYS
 # ─────────────────────────────────────────────
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_API_KEY    = os.getenv("GEMINI_API_KEY",    "").strip()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
+
+# ─────────────────────────────────────────────
+#  BROKER SELECTOR
+#  "paper"   → ورقي (بدون بروكر)
+#  "ctrader" → cTrader Open API (Live/FUNDEDHIVE)
+#  "mt5"     → MetaTrader5 (Demo أو Live)
+# ─────────────────────────────────────────────
+BROKER    = os.getenv("BROKER", "paper").lower().strip()
+LIVE_MODE = BROKER != "paper"     # أي بروكر حقيقي يُفعّل LIVE_MODE
+
+# ─────────────────────────────────────────────
+#  MT5 — MetaTrader 5
+# ─────────────────────────────────────────────
+MT5_LOGIN        = os.getenv("MT5_LOGIN",    "").strip()
+MT5_PASSWORD     = os.getenv("MT5_PASSWORD", "").strip()
+MT5_SERVER       = os.getenv("MT5_SERVER",   "").strip()
+MT5_DEMO         = os.getenv("MT5_DEMO", "true").lower() in ("1", "true", "yes")
+MT5_MAGIC_NUMBER = int(os.getenv("MT5_MAGIC", "123456"))
+
+# رموز MT5 حسب الوسيط (عدّل حسب وسيطك)
+MT5_SYMBOL_MAP = {
+    "^DJI":  os.getenv("MT5_SYMBOL_US30",  "US30"),
+    "^NDX":  os.getenv("MT5_SYMBOL_US100", "NAS100"),
+    "^GSPC": os.getenv("MT5_SYMBOL_US500", "US500"),
+}
+
+# قيمة النقطة لكل لوت (USD) — يُستخدم كـ fallback إذا لم يرد من MT5
+CT_POINT_VALUE_PER_LOT = float(os.getenv("CT_POINT_VALUE_PER_LOT", "1.0"))
+
+# ─────────────────────────────────────────────
+#  cTrader Open API
+#  Get credentials: https://openapi.ctrader.com/
+# ─────────────────────────────────────────────
+CTRADER_CLIENT_ID      = os.getenv("CTRADER_CLIENT_ID",     "").strip()
+CTRADER_CLIENT_SECRET  = os.getenv("CTRADER_CLIENT_SECRET", "").strip()
+CTRADER_ACCOUNT_ID     = int(os.getenv("CTRADER_ACCOUNT_ID", "0"))
+CTRADER_ACCESS_TOKEN   = os.getenv("CTRADER_ACCESS_TOKEN",  "").strip()
+CTRADER_DEMO           = os.getenv("CTRADER_DEMO", "false").lower() in ("1", "true", "yes")
+
+# Symbol names as they appear in your cTrader broker (ask FUNDEDHIVE support if unsure)
+CTRADER_SYMBOL_MAP = {
+    "^DJI":  os.getenv("CT_SYMBOL_US30",  "US30"),
+    "^NDX":  os.getenv("CT_SYMBOL_US100", "NAS100"),
+    "^GSPC": os.getenv("CT_SYMBOL_US500", "US500"),
+}
+
+# ─────────────────────────────────────────────
+#  PROP FIRM RULES — FUNDEDHIVE
+#  Adjust to match your exact plan rules.
+# ─────────────────────────────────────────────
+PROPFIRM_INITIAL_BALANCE       = float(os.getenv("PROPFIRM_INITIAL_BALANCE",    "10000"))
+PROPFIRM_MAX_DAILY_LOSS_PCT    = float(os.getenv("PROPFIRM_MAX_DAILY_LOSS_PCT",  "0.05"))   # 5%
+PROPFIRM_MAX_DRAWDOWN_PCT      = float(os.getenv("PROPFIRM_MAX_DRAWDOWN_PCT",   "0.10"))   # 10%
+PROPFIRM_PROFIT_TARGET_PCT     = float(os.getenv("PROPFIRM_PROFIT_TARGET_PCT",  "0.10"))   # 10%
+PROPFIRM_MIN_TRADING_DAYS      = int(os.getenv("PROPFIRM_MIN_TRADING_DAYS",     "5"))
+PROPFIRM_MAX_LOT_PER_TRADE     = float(os.getenv("PROPFIRM_MAX_LOT_PER_TRADE",  "5.0"))
+PROPFIRM_CLOSE_ON_WEEKEND      = os.getenv("PROPFIRM_CLOSE_ON_WEEKEND", "true").lower() in ("1", "true", "yes")
+PROPFIRM_NO_NEWS_WINDOW_MIN    = int(os.getenv("PROPFIRM_NO_NEWS_WINDOW_MIN",   "0"))      # 0 = disabled
 
 # ─────────────────────────────────────────────
 #  VIRTUAL ACCOUNT  —  حساب ورقي
@@ -21,16 +76,13 @@ MIN_RR_RATIO       = 2.0         # نسبة مخاطرة/مكافأة دنيا 1
 TARGET_RR_RATIO    = 3.0         # هدف 1:3
 
 # ─────────────────────────────────────────────
-#  MARKETS  —  الأسواق
+#  MARKETS  —  الأسواق  (Forex/Indices only)
 # ─────────────────────────────────────────────
-CRYPTO_PAIRS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]
-# yfinance tickers when market is "forex" (indices/FX/metals use yfinance)
-FOREX_PAIRS = ["^DJI", "^NDX", "^GSPC"]
-FOREX_NAMES = {
-    "EURUSD=X": "EURUSD",
-    "GC=F": "XAUUSD",
-    "^DJI": "US30",
-    "^NDX": "US100",
+CRYPTO_PAIRS = []   # Crypto removed — indices only
+FOREX_PAIRS  = ["^DJI", "^NDX", "^GSPC"]
+FOREX_NAMES  = {
+    "^DJI":  "US30",
+    "^NDX":  "US100",
     "^GSPC": "US500",
 }
 
@@ -41,11 +93,12 @@ def display_symbol(yf_ticker: str) -> str:
 
 
 # ─────────────────────────────────────────────
-#  TIMEFRAMES  —  الإطارات الزمنية
+#  TIMEFRAMES  —  الإطارات الزمنية  (1m → 4h)
 # ─────────────────────────────────────────────
-HTF_INTERVAL   = "1h"    # Bias
-MTF_INTERVAL   = "15m"   # Structure
-LTF_INTERVAL   = "5m"    # Entry precision
+HTF_INTERVAL   = "4h"    # Bias & trend (highest)
+MTF_INTERVAL   = "1h"    # Structure confirmation
+LTF_INTERVAL   = "15m"   # Entry precision
+ENTRY_INTERVAL = "1m"    # Ultra-precise entry trigger
 
 # ─────────────────────────────────────────────
 #  ICT KILL ZONES  (UTC)  —  مناطق الصيد

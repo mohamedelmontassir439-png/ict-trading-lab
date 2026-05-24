@@ -25,6 +25,11 @@ except ImportError:
     _log.warning("google-genai not installed. Run: py -m pip install google-genai")
 
 _client: Optional[Any] = None
+_quota_exhausted: bool = False   # set True on 429; cleared on process restart
+
+
+def is_quota_exhausted() -> bool:
+    return _quota_exhausted
 
 
 def get_genai_client():
@@ -57,6 +62,11 @@ def generate_json_response(
     if client is None or types is None:
         return {}
 
+    global _quota_exhausted
+    if _quota_exhausted:
+        _log.info("Gemini quota exhausted — using rule-based fallback")
+        return {}
+
     try:
         response = client.models.generate_content(
             model=gemini_model_name(),
@@ -76,7 +86,12 @@ def generate_json_response(
         data = json.loads(text)
         return data if isinstance(data, dict) else {}
     except Exception as e:
-        _log.warning("Gemini JSON generation failed: %s", e)
+        err_str = str(e)
+        if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+            _quota_exhausted = True
+            _log.warning("Gemini daily quota exhausted — switching to rule-based fallback for this session")
+        else:
+            _log.warning("Gemini JSON generation failed: %s", e)
         return {}
 
 
